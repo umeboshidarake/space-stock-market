@@ -1,1 +1,68 @@
-asao
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>投資ゲーム</title>
+<style>
+  body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+  button { padding: 10px 20px; margin: 5px; }
+</style>
+</head>
+<body>
+
+<h1>投資ゲーム</h1>
+
+<p>所持金: <span id="money">1000</span> 円</p>
+<p>株価: <span id="price">100</span> 円</p>
+<p>保有株数: <span id="stock">0</span> 株</p>
+
+<button onclick="buy()">買う</button>
+<button onclick="sell()">売る</button>
+<button onclick="nextDay()">次の日へ</button>
+
+<script>
+let money = 1000;
+let price = 100;
+let stock = 0;
+
+function update() {
+  document.getElementById("money").textContent = money;
+  document.getElementById("price").textContent = price;
+  document.getElementById("stock").textContent = stock;
+}
+
+function buy() {
+  if (money >= price) {
+    money -= price;
+    stock += 1;
+    update();
+  } else {
+    alert("お金が足りない！");
+  }
+}
+
+function sell() {
+  if (stock > 0) {
+    money += price;
+    stock -= 1;
+    update();
+  } else {
+    alert("株を持っていない！");
+  }
+}
+
+function nextDay() {
+  // 株価をランダム変動
+  let change = Math.floor(Math.random() * 21) - 10;
+  price += change;
+
+  if (price < 10) price = 10;
+
+  update();
+}
+
+update();
+</script>
+
+</body>
+</html>

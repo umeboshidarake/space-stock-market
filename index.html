@@ -115,8 +115,14 @@ window.onload = function(){
 
     const bgCanvas = document.getElementById("bgCanvas");
     const bgCtx = bgCanvas.getContext("2d");
-    bgCanvas.width = window.innerWidth;
-    bgCanvas.height = window.innerHeight;
+
+    function resize(){
+        bgCanvas.width = window.innerWidth;
+        bgCanvas.height = window.innerHeight;
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
 
     let stars = [];
 
@@ -343,7 +349,7 @@ function unlockStock(i){
 
 function checkPriceUpdate(){
     const now=Date.now();
-    if(now-data.lastUpdate>=300000){
+    if(now-data.lastUpdate>=60000){
         updatePrices();
         data.lastUpdate=now;
     }

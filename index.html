@@ -80,10 +80,16 @@ input{
     top:10px;
     right:10px;
 }
+#bgCanvas{
+    position:fixed;
+    inset:0;
+    z-index:-1;
+}    
 </style>
 </head>
-<body>
-
+<body>    
+<canvas id="bgCanvas"></canvas>
+    
 <div id="nicknameScreen">
     <h1>SPACE STOCK</h1>
     <p>ニックネームを入力</p>
@@ -101,6 +107,41 @@ input{
 </div>
 
 <script>
+const bgCanvas = document.getElementById("bgCanvas");
+const bgCtx = bgCanvas.getContext("2d");
+bgCanvas.width = window.innerWidth;
+bgCanvas.height = window.innerHeight;
+
+let stars = [];
+
+for(let i=0;i<150;i++){
+    stars.push({
+        x:Math.random()*bgCanvas.width,
+        y:Math.random()*bgCanvas.height,
+        size:Math.random()*2,
+        speed:Math.random()*0.5+0.2
+    });
+}
+
+function animateStars(){
+    bgCtx.clearRect(0,0,bgCanvas.width,bgCanvas.height);
+    bgCtx.fillStyle="white";
+
+    stars.forEach(star=>{
+        star.y+=star.speed;
+        if(star.y>bgCanvas.height){
+            star.y=0;
+            star.x=Math.random()*bgCanvas.width;
+        }
+        bgCtx.beginPath();
+        bgCtx.arc(star.x,star.y,star.size,0,Math.PI*2);
+        bgCtx.fill();
+    });
+
+    requestAnimationFrame(animateStars);
+}
+
+animateStars();
 let audioCtx;
 let bgmOscillators=[];
 let data = JSON.parse(localStorage.getItem("spaceStockData")) || null;
@@ -230,11 +271,13 @@ function updateUI(){
                 card.appendChild(btn);
             });
 
-            const sellBtn=document.createElement("button");
-            sellBtn.innerText="売る";
-            sellBtn.onclick=()=>sellStock(i);
-            if(!stock.canSell) sellBtn.disabled=true;
-            card.appendChild(sellBtn);
+            [1,10,100].forEach(n=>{
+    const sellBtn=document.createElement("button");
+    sellBtn.innerText=n+"株売る";
+    sellBtn.onclick=()=>sellStock(i,n);
+    if(!stock.canSell || stock.owned<n) sellBtn.disabled=true;
+    card.appendChild(sellBtn);
+});
 
             const canvas=document.createElement("canvas");
             canvas.width=200;
@@ -266,15 +309,17 @@ function buyStock(i,amount){
     }
 }
 
-function sellStock(i){
+function sellStock(i,amount){
     const stock=data.stocks[i];
-    if(stock.owned>0 && stock.canSell){
-        data.money+=stock.price*stock.owned;
-        stock.owned=0;
+
+    if(!stock.canSell) return;
+
+    if(stock.owned>=amount){
+        data.money+=stock.price*amount;
+        stock.owned-=amount;
         updateUI();
     }
 }
-
 function unlockStock(i){
     if(data.points>=500){
         data.points-=500;

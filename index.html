@@ -2,294 +2,345 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CYBER INVEST X</title>
-
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<title>SPACE STOCK</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
 
 <style>
 body{
-margin:0;
-font-family:'Orbitron',sans-serif;
-background:#050510;
-color:#00f5ff;
-text-align:center;
-overflow-x:hidden;
+    margin:0;
+    font-family:'Orbitron',sans-serif;
+    background: radial-gradient(circle at top,#0b0f2a,#000);
+    color:white;
 }
-canvas#particles{
-position:fixed;
-top:0;left:0;
-z-index:-1;
-}
+#game{ padding:20px; }
 h1{
-text-shadow:0 0 10px #00f5ff,0 0 20px #00f5ff;
+    text-align:center;
+    font-size:40px;
+    text-shadow:0 0 20px cyan;
 }
 .card{
-background:rgba(0,0,40,0.8);
-border:1px solid #00f5ff;
-box-shadow:0 0 15px #00f5ff55;
-padding:12px;
-margin:10px;
-border-radius:12px;
+    background:rgba(255,255,255,0.05);
+    border:1px solid cyan;
+    padding:15px;
+    margin:10px;
+    border-radius:15px;
+    box-shadow:0 0 15px rgba(0,255,255,0.4);
+    transition:0.3s;
+    position:relative;
+}
+.card:hover{
+    transform:scale(1.05);
+    box-shadow:0 0 25px cyan;
 }
 button{
-margin:4px;
-padding:6px 12px;
-background:transparent;
-border:1px solid #00f5ff;
-color:#00f5ff;
-cursor:pointer;
+    background:black;
+    border:1px solid cyan;
+    color:cyan;
+    padding:5px 10px;
+    margin:3px;
+    cursor:pointer;
 }
 button:hover{
-background:#00f5ff;
-color:#000;
+    background:cyan;
+    color:black;
 }
-.locked{opacity:0.4;}
-@media(max-width:600px){
-h1{font-size:22px;}
+.locked{ opacity:0.3; }
+#stocks{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
 }
-.tooltip{
-font-size:12px;
-color:#aaa;
+canvas{
+    background:black;
+    border:1px solid cyan;
+    margin-top:10px;
+}
+#nicknameScreen{
+    position:fixed;
+    inset:0;
+    background:black;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    flex-direction:column;
+}
+input{
+    padding:10px;
+    font-size:18px;
+}
+.flavor{
+    position:absolute;
+    background:rgba(0,0,0,0.9);
+    border:1px solid cyan;
+    padding:10px;
+    border-radius:10px;
+    box-shadow:0 0 15px cyan;
+    display:none;
+    width:200px;
+    z-index:100;
+    top:10px;
+    right:10px;
 }
 </style>
 </head>
 <body>
 
-<canvas id="particles"></canvas>
-
-<div id="login">
-<h1>CYBER INVEST X</h1>
-<input id="nick" placeholder="ニックネーム">
-<br><br>
-<button onclick="startGame()">START</button>
+<div id="nicknameScreen">
+    <h1>SPACE STOCK</h1>
+    <p>ニックネームを入力</p>
+    <input id="nicknameInput">
+    <button onclick="startGame()">START</button>
 </div>
 
-<div id="game" style="display:none">
-
-<h1>CYBER INVEST X</h1>
-<p>👤 <span id="name"></span></p>
-<p>💰 <span id="points"></span></p>
-<p>📰 <span id="news"></span></p>
-<p>⏳ 次の変動まで: <span id="timer"></span></p>
-
-<div id="stocks"></div>
-
-<h2>📈 Market Graph</h2>
-<canvas id="chart"></canvas>
-
-<h2>🛍 Background Shop</h2>
-<button onclick="upgradeBG()">背景進化 (50000)</button>
-
-<br><br>
-<button onclick="toggleBGM()">🎵 BGM</button>
-<audio id="bgm" loop>
-<source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_115b9bce59.mp3?filename=future-technology-ambient-110624.mp3">
-</audio>
-
+<div id="game" style="display:none;">
+    <h1>SPACE STOCK MARKET</h1>
+    <p>👤 <span id="playerName"></span></p>
+    <p>💰 所持金: <span id="money"></span>G</p>
+    <p>⭐ ポイント: <span id="points"></span></p>
+    <p>⏳ 次の変動まで: <span id="timer"></span></p>
+    <div id="stocks"></div>
 </div>
 
 <script>
-const CHANGE_INTERVAL=3600000;
-let points=50000;
-let stocks;
-let nextChange;
-let chart;
+let audioCtx;
+let bgmOscillators=[];
+let data = JSON.parse(localStorage.getItem("spaceStockData")) || null;
 
-const stockBase=[
-{name:"TechNova",unlockCost:0,personality:"growth",flavor:"急成長テック企業"},
-{name:"GreenVolt",unlockCost:15000,personality:"stable",flavor:"再エネの安定株"},
-{name:"GameSphere",unlockCost:20000,personality:"volatile",flavor:"爆発的人気ゲーム会社"},
-{name:"AICore",unlockCost:30000,personality:"growth",flavor:"AIの未来を握る"},
-{name:"FoodChain",unlockCost:40000,personality:"stable",flavor:"生活必需の守護者"},
-{name:"AutoDrive",unlockCost:50000,personality:"stable",flavor:"自動運転革命"},
-{name:"SpaceXion",unlockCost:80000,personality:"risky",flavor:"宇宙開発の夢"},
-{name:"MediLife",unlockCost:100000,personality:"growth",flavor:"医療革新企業"},
-{name:"CryptoZen",unlockCost:150000,personality:"volatile",flavor:"仮想通貨の象徴"},
-{name:"MediaStorm",unlockCost:200000,personality:"risky",flavor:"世界を動かす報道機関"}
-];
+if(!data){
+    data={
+        nickname:"",
+        money:10000,
+        points:0,
+        stocks:[],
+        lastUpdate:Date.now()
+    };
 
-function initStocks(){
-stocks=stockBase.map(s=>({
-...s,
-price:Math.floor(Math.random()*100)+50,
-owned:0,
-lockedShares:0,
-unlocked:s.unlockCost===0,
-history:[]
-}));
-}
+    const personalities=[
+        "安定志向の巨大企業。市場の守護者。",
+        "乱高下する危険銘柄。ハイリスク。",
+        "急成長中の宇宙スタートアップ。",
+        "衰退気味の老舗企業。",
+        "バブル気味の話題株。",
+        "AI制御の未来企業。",
+        "異星資源開発会社。",
+        "量子技術ベンチャー。",
+        "エネルギー革命銘柄。",
+        "未来医療テック企業。"
+    ];
 
-function startGame(){
-let nick=document.getElementById("nick").value;
-if(!nick)return;
-localStorage.setItem("nickname",nick);
+    const types=["stable","volatile","growth","decline","bubble","volatile","growth","stable","growth","stable"];
 
-if(!localStorage.getItem("save")){
-initStocks();
-nextChange=Date.now()+CHANGE_INTERVAL;
-save();
-}else load();
-
-document.getElementById("login").style.display="none";
-document.getElementById("game").style.display="block";
-document.getElementById("name").innerText=localStorage.getItem("nickname");
-
-processOffline();
-render();
-createChart();
-timerLoop();
+    for(let i=0;i<10;i++){
+        data.stocks.push({
+            name:"STOCK-"+(i+1),
+            price:Math.floor(Math.random()*500)+500,
+            owned:0,
+            unlocked:i<3,
+            personality:personalities[i],
+            personalityType:types[i],
+            history:[],
+            canSell:true
+        });
+    }
 }
 
 function save(){
-localStorage.setItem("save",JSON.stringify({points,stocks,nextChange}));
-}
-function load(){
-let d=JSON.parse(localStorage.getItem("save"));
-points=d.points;stocks=d.stocks;nextChange=d.nextChange;
-}
-function processOffline(){
-while(Date.now()>=nextChange){
-marketUpdate();
-nextChange+=CHANGE_INTERVAL;
-}
+    localStorage.setItem("spaceStockData",JSON.stringify(data));
 }
 
-function trade(i,amount){
-let s=stocks[i];
-if(!s.unlocked)return;
-if(amount>0){
-let cost=s.price*amount;
-if(points>=cost){
-points-=cost;
-s.owned+=amount;
-s.lockedShares+=amount;
-}
-}else{
-let sell=Math.abs(amount);
-if(sell>s.owned-s.lockedShares){alert("まだ売れない");return;}
-points+=s.price*sell;
-s.owned-=sell;
-}
-save();render();
+function initAudio(){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    startBGM();
 }
 
-function unlock(i){
-let s=stocks[i];
-if(points>=s.unlockCost){
-points-=s.unlockCost;
-s.unlocked=true;
-save();render();
-}
-}
-
-function render(){
-document.getElementById("points").innerText=points;
-let area=document.getElementById("stocks");
-area.innerHTML="";
-stocks.forEach((s,i)=>{
-if(!s.unlocked){
-area.innerHTML+=`
-<div class="card locked">
-${s.name}<br>
-解禁:${s.unlockCost}<br>
-<button onclick="unlock(${i})">解禁</button>
-</div>`;
-}else{
-area.innerHTML+=`
-<div class="card">
-<b title="${s.flavor}">${s.name}</b><br>
-価格:${s.price}<br>
-保有:${s.owned}<br>
-<button onclick="trade(${i},1)">+1</button>
-<button onclick="trade(${i},10)">+10</button>
-<button onclick="trade(${i},100)">+100</button><br>
-<button onclick="trade(${i},-1)">-1</button>
-<button onclick="trade(${i},-10)">-10</button>
-<button onclick="trade(${i},-100)">-100</button>
-</div>`;
-}
-});
+function playBuySound(){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type="sawtooth";
+    osc.frequency.value=600;
+    gain.gain.value=0.1;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.frequency.exponentialRampToValueAtTime(200,audioCtx.currentTime+0.2);
+    osc.stop(audioCtx.currentTime+0.2);
 }
 
-function marketUpdate(){
-stocks.forEach(s=>{
-let change=Math.floor(Math.random()*20)-10;
-if(s.personality==="growth")change+=5;
-if(s.personality==="volatile")change*=2;
-if(s.personality==="risky")change*=3;
-s.price+=change;
-if(s.price<10)s.price=10;
-s.history.push(s.price);
-s.lockedShares=0;
-});
-save();
-updateChart();
+function startBGM(){
+    const notes=[110,220,165];
+    notes.forEach(freq=>{
+        const osc=audioCtx.createOscillator();
+        const gain=audioCtx.createGain();
+        osc.type="sine";
+        osc.frequency.value=freq;
+        gain.gain.value=0.02;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        bgmOscillators.push(osc);
+    });
 }
 
-function timerLoop(){
-setInterval(()=>{
-if(Date.now()>=nextChange){
-marketUpdate();
-nextChange=Date.now()+CHANGE_INTERVAL;
-}
-let remain=nextChange-Date.now();
-let m=Math.floor(remain/60000);
-let s=Math.floor((remain%60000)/1000);
-document.getElementById("timer").innerText=m+"分 "+s+"秒";
-},1000);
+function startGame(){
+    const name=document.getElementById("nicknameInput").value;
+    if(name.trim()=="")return;
+    data.nickname=name;
+    initAudio();
+    save();
+    init();
 }
 
-function createChart(){
-chart=new Chart(document.getElementById("chart"),{
-type:"line",
-data:{labels:[],datasets:[]}
-});
-updateChart();
-}
-function updateChart(){
-chart.data.labels=stocks[0].history.map((_,i)=>i);
-chart.data.datasets=stocks.map(s=>({label:s.name,data:s.history,borderColor:"#00f5ff",tension:0.3}));
-chart.update();
+function init(){
+    document.getElementById("nicknameScreen").style.display="none";
+    document.getElementById("game").style.display="block";
+    document.getElementById("playerName").innerText=data.nickname;
+    updateUI();
+    setInterval(updateTimer,1000);
+    checkPriceUpdate();
 }
 
-function upgradeBG(){
-if(points>=50000){
-points-=50000;
-document.body.style.background="linear-gradient(45deg,#000,#001f3f,#003366)";
-save();render();
-}
+function updateUI(){
+    document.getElementById("money").innerText=data.money;
+    document.getElementById("points").innerText=data.points;
+    const stocksDiv=document.getElementById("stocks");
+    stocksDiv.innerHTML="";
+
+    data.stocks.forEach((stock,i)=>{
+        const card=document.createElement("div");
+        card.className="card"+(stock.unlocked?"":" locked");
+
+        card.innerHTML=`
+            <h3>${stock.name}</h3>
+            <p>価格: ${stock.price}G</p>
+            <p>保有: ${stock.owned}</p>
+        `;
+
+        const flavor=document.createElement("div");
+        flavor.className="flavor";
+        flavor.innerText=stock.personality;
+        card.appendChild(flavor);
+
+        card.onmouseenter=()=>{ flavor.style.display="block"; };
+        card.onmouseleave=()=>{ flavor.style.display="none"; };
+
+        if(stock.unlocked){
+            [1,10,100].forEach(n=>{
+                const btn=document.createElement("button");
+                btn.innerText=n+"株買う";
+                btn.onclick=()=>buyStock(i,n);
+                card.appendChild(btn);
+            });
+
+            const sellBtn=document.createElement("button");
+            sellBtn.innerText="売る";
+            sellBtn.onclick=()=>sellStock(i);
+            if(!stock.canSell) sellBtn.disabled=true;
+            card.appendChild(sellBtn);
+
+            const canvas=document.createElement("canvas");
+            canvas.width=200;
+            canvas.height=100;
+            card.appendChild(canvas);
+            drawGraph(canvas,stock.history);
+        }else{
+            const unlockBtn=document.createElement("button");
+            unlockBtn.innerText="500Pで解放";
+            unlockBtn.onclick=()=>unlockStock(i);
+            card.appendChild(unlockBtn);
+        }
+
+        stocksDiv.appendChild(card);
+    });
+
+    save();
 }
 
-function toggleBGM(){
-let bgm=document.getElementById("bgm");
-bgm.paused?bgm.play():bgm.pause();
+function buyStock(i,amount){
+    const stock=data.stocks[i];
+    const cost=stock.price*amount;
+    if(data.money>=cost){
+        data.money-=cost;
+        stock.owned+=amount;
+        stock.canSell=false;
+        playBuySound();
+        updateUI();
+    }
 }
 
-/* 粒子 */
-const canvas=document.getElementById("particles");
-const ctx=canvas.getContext("2d");
-canvas.width=window.innerWidth;
-canvas.height=window.innerHeight;
-let parts=[];
-for(let i=0;i<100;i++){
-parts.push({x:Math.random()*canvas.width,y:Math.random()*canvas.height,r:Math.random()*2+1,dx:(Math.random()-0.5),dy:(Math.random()-0.5)});
+function sellStock(i){
+    const stock=data.stocks[i];
+    if(stock.owned>0 && stock.canSell){
+        data.money+=stock.price*stock.owned;
+        stock.owned=0;
+        updateUI();
+    }
 }
-function anim(){
-ctx.clearRect(0,0,canvas.width,canvas.height);
-parts.forEach(p=>{
-p.x+=p.dx;p.y+=p.dy;
-ctx.beginPath();
-ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-ctx.fillStyle="#00f5ff";
-ctx.shadowBlur=10;
-ctx.shadowColor="#00f5ff";
-ctx.fill();
-});
-requestAnimationFrame(anim);
+
+function unlockStock(i){
+    if(data.points>=500){
+        data.points-=500;
+        data.stocks[i].unlocked=true;
+        updateUI();
+    }
 }
-anim();
+
+function checkPriceUpdate(){
+    const now=Date.now();
+    if(now-data.lastUpdate>=300000){
+        updatePrices();
+        data.lastUpdate=now;
+    }
+    setTimeout(checkPriceUpdate,10000);
+}
+
+function updatePrices(){
+    data.stocks.forEach(stock=>{
+        let change=0;
+        switch(stock.personalityType){
+            case "stable": change=(Math.random()-0.5)*20; break;
+            case "volatile": change=(Math.random()-0.5)*300; break;
+            case "growth": change=Math.random()*50; break;
+            case "decline": change=-(Math.random()*50); break;
+            case "bubble":
+                change=Math.random()<0.2?(Math.random()-0.5)*600:Math.random()*80;
+                break;
+            default: change=(Math.random()-0.5)*100;
+        }
+        stock.price=Math.max(10,Math.floor(stock.price+change));
+        stock.history.push(stock.price);
+        if(stock.history.length>20) stock.history.shift();
+        stock.canSell=true;
+    });
+    data.points+=100;
+    updateUI();
+}
+
+function updateTimer(){
+    const remain=300000-(Date.now()-data.lastUpdate);
+    const sec=Math.max(0,Math.floor(remain/1000));
+    document.getElementById("timer").innerText=sec+"秒";
+}
+
+function drawGraph(canvas,dataArr){
+    const ctx=canvas.getContext("2d");
+    ctx.clearRect(0,0,200,100);
+    ctx.beginPath();
+    ctx.strokeStyle="cyan";
+    if(dataArr.length>1){
+        const max=Math.max(...dataArr);
+        const min=Math.min(...dataArr);
+        dataArr.forEach((v,i)=>{
+            const x=i*(200/20);
+            const y=100-((v-min)/(max-min+1))*100;
+            if(i==0)ctx.moveTo(x,y);
+            else ctx.lineTo(x,y);
+        });
+    }
+    ctx.stroke();
+}
+
+if(data.nickname){
+    init();
+}
 </script>
 </body>
 </html>

@@ -170,6 +170,20 @@ input{
     background:#7e22ce;
     color:white;
 }
+ #achievementScreen{
+    position:fixed;
+    inset:0;
+    background:black;
+    padding:40px;
+    z-index:3000;
+}
+
+.achievement{
+    border:1px solid #a855f7;
+    padding:10px;
+    margin:10px;
+    border-radius:10px;
+}
 </style>
 </head>
 <body>    
@@ -184,6 +198,7 @@ input{
 
 <div id="game" style="display:none;">
     <h1>SPACE STOCK MARKET</h1>
+    <button onclick="openAchievements()">🏆 実績</button>
     <p>👤 <span id="playerName"></span></p>
     <p>💰 所持金: <span id="money"></span>G</p>
     <p>⭐ ポイント: <span id="points"></span></p>
@@ -396,6 +411,7 @@ card.onmouseleave = () => {
 }
 
 function buyStock(i,amount){
+    data.totalBuys=(data.totalBuys||0)+1;
     const stock=data.stocks[i];
     const cost=stock.price*amount;
 
@@ -582,7 +598,58 @@ function drawLegend(){
         legend.appendChild(item);
     });
 }
+const achievements=[
+{
+name:"初めての投資",
+desc:"株を1回購入する",
+check:()=>data.totalBuys>=1
+},
+{
+name:"資産家",
+desc:"所持金20000G",
+check:()=>data.money>=20000
+},
+{
+name:"株コレクター",
+desc:"株を100株保有",
+check:()=>data.stocks.some(s=>s.owned>=100)
+}
+];
+
+function openAchievements(){
+
+document.getElementById("achievementScreen").style.display="block";
+
+const list=document.getElementById("achievementList");
+list.innerHTML="";
+
+achievements.forEach(a=>{
+
+const div=document.createElement("div");
+div.className="achievement";
+
+if(a.check()){
+div.innerText=a.name+" - "+a.desc;
+}else{
+div.innerText="？？？？？？？？";
+}
+
+list.appendChild(div);
+
+});
+}
+
+function closeAchievements(){
+document.getElementById("achievementScreen").style.display="none";
+}
 </script>
+    
+<div id="achievementScreen" style="display:none;">
+<h2>🏆 実績</h2>
+<div id="achievementList"></div>
+<button onclick="closeAchievements()">閉じる</button>
+</div>
+    
  <div id="tooltip"></div>   
 </body>
 </html>

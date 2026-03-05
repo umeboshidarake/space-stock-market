@@ -149,6 +149,27 @@ input{
     z-index:1000;
     box-shadow:0 0 20px #7e22ce;
 }
+#legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    margin-bottom:20px;
+}
+
+.legend-item{
+    cursor:pointer;
+    padding:5px 10px;
+    border:1px solid #a855f7;
+    color:#c084fc;
+    border-radius:5px;
+    font-size:14px;
+    transition:0.3s;
+}
+
+.legend-item:hover{
+    background:#7e22ce;
+    color:white;
+}
 </style>
 </head>
 <body>    
@@ -169,6 +190,7 @@ input{
     <p>⏳ 次の変動まで: <span id="timer"></span></p>
     <h2>📊 全銘柄グラフ</h2>
 <canvas id="allGraph" height="300"></canvas>
+    <div id="legend"></div>
     <div id="stocks"></div>
 </div>
 
@@ -368,6 +390,8 @@ card.onmouseleave = () => {
 
     save();
     drawAllGraph();
+    drawLegend();
+    drawAllGraph();
 }
 
 function buyStock(i,amount){
@@ -496,6 +520,8 @@ function drawAllGraph(){
 
     data.stocks.forEach((stock,index)=>{
 
+         if(!stock.visible) return; 
+
         if(stock.history.length < 2) return;
 
         const max = Math.max(...stock.history);
@@ -514,6 +540,45 @@ function drawAllGraph(){
         });
 
         ctx.stroke();
+    });
+}
+
+function drawLegend(){
+    const legend = document.getElementById("legend");
+    legend.innerHTML = "";
+
+    const colors = [
+        "#a855f7",
+        "#c084fc",
+        "#9333ea",
+        "#d946ef",
+        "#8b5cf6",
+        "#7e22ce",
+        "#e879f9",
+        "#a78bfa",
+        "#6d28d9",
+        "#c026d3"
+    ];
+
+    data.stocks.forEach((stock,index)=>{
+        const item = document.createElement("div");
+        item.className="legend-item";
+        item.style.borderColor = colors[index];
+        item.style.color = colors[index];
+        item.innerText = stock.name;
+
+        // クリックで表示/非表示切替
+        item.onclick = ()=>{
+            stock.visible = !stock.visible;
+            updateUI();
+        };
+
+        // 非表示なら少し透明に
+        if(!stock.visible){
+            item.style.opacity = 0.3;
+        }
+
+        legend.appendChild(item);
     });
 }
 </script>

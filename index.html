@@ -311,13 +311,13 @@ name:"STOCK-"+(i+1),
 price:Math.floor(Math.random()*500)+500,
 owned:0,
 unlocked:i<3,
+unlockCost:500 + i*300,
 personality:personalities[i],
 personalityType:types[i],
 history:[500],
 canSell:true,
 visible:true
 });
-}
 
 save();
 }
@@ -391,7 +391,7 @@ card.appendChild(btn);
 
 const unlockBtn=document.createElement("button");
 unlockBtn.className="unlockBtn";
-unlockBtn.innerText="500Pで解放";
+unlockBtn.innerText=stock.unlockCost+"Pで解放";
 unlockBtn.onclick=()=>unlockStock(i);
 card.appendChild(unlockBtn);
 
@@ -447,9 +447,9 @@ updateUI();
 
 function unlockStock(i){
 
-if(data.points>=500){
+if(data.points>=data.stocks[i].unlockCost){
 
-data.points-=500;
+data.points-=data.stocks[i].unlockCost;
 data.stocks[i].unlocked=true;
 
 updateUI();
@@ -681,30 +681,49 @@ return;
 
 data.mint -= 50;
 
-let rand = Math.random()*100;
-let total = 0;
-let result = "";
+const resultBox=document.getElementById("gachaResult");
+
+const names=mintTable.map(m=>m.name);
+
+let count=0;
+
+const anim=setInterval(()=>{
+
+resultBox.innerText=names[Math.floor(Math.random()*names.length)];
+
+count++;
+
+if(count>20){
+
+clearInterval(anim);
+
+let rand=Math.random()*100;
+let total=0;
+let result="";
 
 for(let m of mintTable){
 
-total += m.rate;
+total+=m.rate;
 
-if(rand <= total){
-result = m.name;
+if(rand<=total){
+result=m.name;
 break;
 }
 
 }
 
-if(!data.mintInventory[result]){
-data.mintInventory[result] = 0;
-}
+if(!data.mintInventory[result]) data.mintInventory[result]=0;
 
 data.mintInventory[result]++;
 
-document.getElementById("gachaResult").innerText="🎉 "+result;
+resultBox.innerText="✨ "+result+" ✨";
 
 updateUI();
+
+}
+
+},80);
+
 }
 
 function openMint(){

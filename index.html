@@ -238,30 +238,71 @@ let timerInterval = null, priceCheckTimeout = null, isGachaSpinning = false;
 let graphPoints = [], hoveredPoint = null;
 // --- ポーション効果とレシピ ---
 const potionEffects = {
-    "🧪 失敗作ポーション (ゴミ)": { desc: "何の効果もない...ただ不味い。", type: "instant", action: () => {} },
+    // ランダム枠
+    "💰 黄金の雫": { desc: "所持金即座に +100,000G", type: "instant", action: (m=1) => { data.money += 100000 * m; } },
+    "⭐ 知識の霊薬": { desc: "ポイント即座に +5,000P", type: "instant", action: (m=1) => { data.points += 5000 * m; } },
+    "📈 ハイパードライブ薬": { desc: "3分間、株価の変動幅が2倍", type: "buff", duration: 180000 },
+    "🛡 プロテクトジェル": { desc: "3分間、株価下落時の下落幅半減", type: "buff", duration: 180000 },
+    "💎 ミントブースト": { desc: "3分間、売却時のミント破片獲得量2倍", type: "buff", duration: 180000 },
+    "🚀 ギャラクシーブル": { desc: "3分間、株価が上がりやすくなる", type: "buff", duration: 180000 },
+    "⏳ タイムワープ薬": { desc: "即座に20回分の価格変動", type: "instant", action: (m=1) => { for(let i=0;i<20*m;i++) updatePrices(true); updateUI(); }},
+    // 固定枠
     "💧 癒しの水": { desc: "株価が少しだけ上がりやすくなる (3分)", type: "buff", duration: 180000 },
     "🔥 炎の霊薬": { desc: "次に変動する時、全株価が大きく動く！", type: "buff", duration: 10000 },
     "💰 成金ポーション": { desc: "即座に 5,000G 獲得！", type: "instant", action: (m=1) => { data.money += 5000*m; } },
     "🌟 ひらめきの霊薬": { desc: "即座に 500P 獲得！", type: "instant", action: (m=1) => { data.points += 500*m; } },
     "🍦 チョコミントポーション": { desc: "次に飲むポーションの効果が2倍になる！", type: "buff", duration: 600000 }, 
-    "❓ 異質なポーション": { desc: "次元の境界を揺るがす...『破壊』が可能になる", type: "buff", duration: 999999999 }
+    "⏳ タイムポーション": { desc: "次の株価変動がすぐに起こる！", type: "instant", action: () => { data.nextChange = Date.now(); } },
+    "❓ 異質なポーション": { desc: "次元の境界を揺るがす...『破壊』が可能になる", type: "buff", duration: 999999999 },
+    "🌍 星の恵み": { desc: "3分間、ミントの破片獲得量が3倍", type: "buff", duration: 180000 },
+    "🌋 ヴォルカニック・ブル": { desc: "3分間、株価が超絶上がりやすくなる", type: "buff", duration: 180000 },
+    "🧂 ソルトバリア": { desc: "3分間、株価の下落を完全に無効化", type: "buff", duration: 180000 },
+    "🌶️ スパイシーサワー": { desc: "1分間、変動間隔が10秒ごとに", type: "buff", duration: 60000 },
+    "❄️ フロストエナジー": { desc: "2分間、次の価格変動を予知", type: "buff", duration: 120000 },
+    "💧 マダム・ザ・ウォーター": { desc: "即座にミントガチャを10回引く", type: "instant", action: (m=1) => { closeScreen("bagScreen"); spinGacha(10 * m, true); }},
+    "🍨 アイスクリームポーション": { desc: "3分間、株価の変動がとても緩やかになる", type: "buff", duration: 180000 },
+    "🍸 ソルティドッグ": { desc: "3分間、売却時の利益が1.5倍になる", type: "buff", duration: 180000 },
+    "🥤 コーラ": { desc: "即座に10回分の価格変動を起こし、ミント破片を300得る", type: "instant", action: (m=1) => { for(let i=0;i<10*m;i++) updatePrices(true); data.mint += 300 * m; updateUI(); }}
 };
 
+// 醸造（ポーション作り）のレシピ
+// ※上から順に判定されるため、具体的なレシピを先に、ランダム（任意）を最後に配置しています
 const treeRecipes = [
-    { base: "🛠️ ポーションのもと", m1: "ウォーターミント", m2: "ミルクミント", result: "💧 癒しの水" },
-    { base: "🛠️ 炭酸のもと", m1: "スパイシーミント", m2: "マグマミント", result: "🔥 炎の霊薬" },
-    { base: "🛠️ お酒のもと", m1: "ソルティミント", m2: "プラネットミント", result: "💰 成金ポーション" },
-    { base: "🛠️ スイーツのもと", m1: "フロストミント", m2: "チョコチップミント", result: "🍦 チョコミントポーション" },
-    { base: "🛠️ ダークマターのもと", m1: "ダークマター", m2: "ギャラクシーミント", result: "❓ 異質なポーション" }
+    { base: "🛠️ ポーションのもと", m1: "プラネットミント", m2: "ベーシックミント", result: "💧 癒しの水" },
+    { base: "🛠️ ポーションのもと", m1: "フロストミント", m2: "プラネットミント", result: "🌟 ひらめきの霊薬" },
+    { base: "🛠️ ポーションのもと", m1: "プラネットミント", m2: "プラネットミント", result: "🌍 星の恵み" },
+    { base: "🛠️ ポーションのもと", m1: "マグマミント", m2: "マグマミント", result: "🌋 ヴォルカニック・ブル" },
+    { base: "🛠️ ポーションのもと", m1: "ソルティミント", m2: "ソルティミント", result: "🧂 ソルトバリア" },
+    { base: "🛠️ ポーションのもと", m1: "マダムミント", m2: "任意", result: "💧 マダム・ザ・ウォーター" },
+    { base: "🛠️ 炭酸のもと", m1: "マグマミント", m2: "ガスミント", result: "🔥 炎の霊薬" },
+    { base: "🛠️ 炭酸のもと", m1: "焼け焦げたミント", m2: "ブラッドミント", result: "⏳ タイムポーション" },
+    { base: "🛠️ 炭酸のもと", m1: "スパイシーミント", m2: "任意", result: "🌶️ スパイシーサワー" },
+    { base: "🛠️ 炭酸のもと", m1: "フロストミント", m2: "任意", result: "❄️ フロストエナジー" },
+    { base: "🛠️ 炭酸のもと", m1: "焼け焦げたミント", m2: "スイーツミント", result: "🥤 コーラ" },
+    { base: "🛠️ お酒のもと", m1: "マダムミント", m2: "アルコールミント", result: "💰 成金ポーション" },
+    { base: "🛠️ お酒のもと", m1: "ソルティミント", m2: "ウォーターミント", result: "🍸 ソルティドッグ" },
+    { base: "🛠️ スイーツのもと", m1: "チョコチップミント", m2: "スイートミント", result: "🍦 チョコミントポーション" },
+    { base: "🛠️ スイーツのもと", m1: "ミルクミント", m2: "ミルクミント", result: "🍨 アイスクリームポーション" },
+    { base: "🛠️ ダークマターのもと", m1: "ダークマター", m2: "ブラッドミント", result: "❓ 異質なポーション" },
+    // ▼ランダムポーションの条件
+    { base: "🛠️ ポーションのもと", m1: "任意", m2: "任意", result: "🎲 基本ポーション(ランダム)" }
 ];
 
 // --- 実績データ ---
 const achievements = [
     { name: "初めての取引", desc: "株を1回購入する", check: () => data.totalBuys >= 1 },
+    { name: "駆け出し投資家", desc: "所持金が 50,000G を突破する", check: () => data.money >= 50000 },
     { name: "大富豪への道", desc: "所持金が 100,000G を突破する", check: () => data.money >= 100000 },
-    { name: "投資家デビュー", desc: "銘柄を5つ解放する", check: () => data.stocks.filter(s => s.unlocked).length >= 5 },
+    { name: "宇宙の長者", desc: "所持金が 1,000,000G を突破する", check: () => data.money >= 1000000 },
+    { name: "市場の開拓者", desc: "銘柄を5つ解放する", check: () => data.stocks.filter(s => s.unlocked).length >= 5 },
+    { name: "全市場制覇", desc: "すべての銘柄を解放する", check: () => data.stocks.filter(s => s.unlocked).length >= 10 },
+    { name: "ガチャ初心者", desc: "ガチャを 10 回回す", check: () => data.gachaCount >= 10 },
     { name: "ガチャ中毒", desc: "ガチャを 50 回回す", check: () => data.gachaCount >= 50 },
-    { name: "錬金術師", desc: "ポーションを 10 回醸造する", check: () => data.brewCount >= 10 },
+    { name: "ガチャの神様", desc: "ガチャを 100 回回す", check: () => data.gachaCount >= 100 },
+    { name: "見習い錬金術師", desc: "ポーションを 5 回醸造する", check: () => data.brewCount >= 5 },
+    { name: "熟練の錬金術師", desc: "ポーションを 10 回醸造する", check: () => data.brewCount >= 10 },
+    { name: "ポーションマスター", desc: "ポーションを 50 回醸造する", check: () => data.brewCount >= 50 },
+    { name: "禁忌に触れし者", desc: "ダークマターを抽出する", check: () => data.discoveredMints.includes("ダークマター") },
     { name: "狂気の科学者", desc: "異質なポーションを作成する", check: () => data.alienPotionCount >= 1 },
     { name: "次元の超越者", desc: "世界を破壊し、異星のミントを手に入れる", check: () => data.alienMints >= 1 }
 ];
@@ -271,6 +312,8 @@ function save() {
     localStorage.setItem("spaceStockData", JSON.stringify(data));
     checkAchievements();
 }
+
+function getTickInterval() { return isBuffActive("🌶️ スパイシーサワー") ? 10000 : 60000; } // 基本1分(60000ms)、スパイシー時10秒
 
 function startGame() {
     const input = document.getElementById("nicknameInput").value;
@@ -287,7 +330,7 @@ function startGame() {
     
     if(timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(updateTimer, 1000);
-    data.nextChange = Date.now() + 10000;
+    data.nextChange = Date.now() + getTickInterval();
 }
 
 function isBuffActive(potionName) {
@@ -318,27 +361,27 @@ function updateTimer() {
     document.getElementById("buffStatus").innerHTML = buffText.length > 0 ? "✨ 発動中: " + buffText.join(" / ") : "";
 }
 
-function updatePrices() {
+function updatePrices(skipIntervalUpdate = false) {
     let isHealing = isBuffActive("💧 癒しの水");
     let isFire = isBuffActive("🔥 炎の霊薬");
     
     data.stocks.forEach((stock, idx) => {
         if(!stock.unlocked) return;
         let vol = stock.vol;
-        if(isFire) vol *= 3; // 炎の霊薬でボラティリティ激増
+        if(isFire) vol *= 3; 
         
         let changePercent = (Math.random() * vol * 2) - vol; 
-        if(isHealing) changePercent += 0.01; // 癒しの水で少しプラス補正
+        if(isHealing) changePercent += 0.01; 
         
         stock.price = Math.max(10, Math.floor(stock.price * (1 + changePercent)));
         stock.history.push(stock.price);
         if(stock.history.length > 30) stock.history.shift();
     });
     
-    if(isFire) delete data.activeBuffs["🔥 炎の霊薬"]; // 1回で消費
+    if(isFire) delete data.activeBuffs["🔥 炎の霊薬"]; 
     
     data.points += 10;
-    data.nextChange = Date.now() + 10000;
+    if(!skipIntervalUpdate) data.nextChange = Date.now() + getTickInterval();
     updateUI(); drawAllGraph(); save();
 }
 
@@ -516,14 +559,27 @@ function drawAllGraph(){
     }
 }
 
-// --- ミント・ガチャシステム ---
-const mintTypes = [
-    {name:"ウォーターミント", prob:25}, {name:"ミルクミント", prob:20}, {name:"スパイシーミント", prob:15},
-    {name:"プラネットミント", prob:10}, {name:"ソルティミント", prob:10}, {name:"フロストミント", prob:8},
-    {name:"焼け焦げたミント", prob:5}, {name:"チョコチップミント", prob:4}, {name:"マグマミント", prob:2},
-    {name:"マダムミント", prob:0.5}, {name:"ブラッドミント", prob:0.3}, {name:"ギャラクシーミント", prob:0.1},
-    {name:"ダークマター", prob:0.1}
-];
+// --- ミント・ガチャシステム (確率表を完全復元) ---
+function getActiveMintTable() {
+    return data.alienMints > 0 ? [
+        {name:"ベーシックミント",rate:19}, {name:"ウォーターミント",rate:4}, {name:"チョコチップミント",rate:3},
+        {name:"ブラッドミント",rate:1}, {name:"ブルーミント",rate:15}, {name:"レッドミント",rate:15},
+        {name:"グリーンミント",rate:15}, {name:"パープルミント",rate:6}, {name:"ミルクミント",rate:1}, {name:"ゴールドミント",rate:4},
+        {name:"ギャラクシーミント",rate:0.5}, {name:"ブラックホールミント",rate:0.5},
+        {name:"プラネットミント",rate:1}, {name:"マグマミント",rate:1}, {name:"ソルティミント",rate:1},
+        {name:"スパイシーミント",rate:3}, {name:"フロストミント",rate:3}, {name:"マダムミント",rate:3},
+        {name:"ダークマター",rate:0.1}, {name:"スイーツミント",rate:1}, {name:"ガスミント",rate:1}, 
+        {name:"アルコールミント",rate:1}, {name:"エッグミント",rate:0.5}, {name:"焼け焦げたミント",rate:0.4}
+    ] : [
+        {name:"ベーシックミント",rate:19}, {name:"ウォーターミント",rate:4}, {name:"チョコチップミント",rate:3},
+        {name:"ブラッドミント",rate:1}, {name:"ブルーミント",rate:16}, {name:"レッドミント",rate:16},
+        {name:"グリーンミント",rate:16}, {name:"パープルミント",rate:6}, {name:"ミルクミント",rate:1}, {name:"ゴールドミント",rate:4},
+        {name:"ギャラクシーミント",rate:0.5}, {name:"ブラックホールミント",rate:0.5},
+        {name:"スパイシーミント",rate:3}, {name:"フロストミント",rate:3}, {name:"マダムミント",rate:3},
+        {name:"ダークマター",rate:0.1}, {name:"スイーツミント",rate:1}, {name:"ガスミント",rate:1}, 
+        {name:"アルコールミント",rate:1}, {name:"エッグミント",rate:0.5}, {name:"焼け焦げたミント",rate:0.4}
+    ];
+}
 
 function openGacha(){ 
     document.getElementById("gachaResult").innerHTML = "READY";
@@ -541,9 +597,11 @@ function spinGacha(times, isFree = false){
     document.getElementById("gachaBtn").disabled = true; document.getElementById("gacha10Btn").disabled = true;
     
     let results = [];
+    const mintTypes = getActiveMintTable();
+    
     for(let t=0; t<times; t++){
         let rand = Math.random() * 100; let sum = 0; let got = mintTypes[0].name;
-        for(let m of mintTypes){ sum += m.prob; if(rand <= sum){ got = m.name; break; } }
+        for(let m of mintTypes){ sum += m.rate; if(rand <= sum){ got = m.name; break; } }
         results.push(got);
         data.mintInventory[got] = (data.mintInventory[got] || 0) + 1;
         if(!data.discoveredMints.includes(got)) data.discoveredMints.push(got);
@@ -556,11 +614,11 @@ function spinGacha(times, isFree = false){
         if(frame > 10){
             clearInterval(anim); isGachaSpinning = false;
             if(times === 1) {
-                let color = ["ブラッドミント", "ギャラクシーミント", "ダークマター"].includes(results[0]) ? "#ef4444" : "#a855f7";
+                let color = ["ブラッドミント", "ギャラクシーミント", "ダークマター", "ブラックホールミント"].includes(results[0]) ? "#ef4444" : "#a855f7";
                 resDiv.innerHTML = `<span style="color:${color}; animation:unlockGlow 1s infinite alternate;">${results[0]}</span>`;
             } else {
                 resDiv.innerHTML = `<div style="font-size:16px; display:flex; flex-wrap:wrap; gap:5px; justify-content:center;">` + results.map(r => {
-                    let c = ["ブラッドミント", "ギャラクシーミント", "ダークマター"].includes(r) ? "#ef4444" : "#e9d5ff";
+                    let c = ["ブラッドミント", "ギャラクシーミント", "ダークマター", "ブラックホールミント"].includes(r) ? "#ef4444" : "#e9d5ff";
                     return `<span style="border:1px solid #a855f7; padding:2px 5px; border-radius:4px; color:${c}">${r}</span>`;
                 }).join("") + `</div>`;
             }
@@ -573,10 +631,10 @@ function spinGacha(times, isFree = false){
 
 // --- 素材合成 (ベース作成) ---
 const craftRecipes = [
-    { result: "🛠️ ポーションのもと", m1: "ウォーターミント", m2: "ウォーターミント" },
-    { result: "🛠️ スイーツのもと", m1: "ミルクミント", m2: "ミルクミント" },
-    { result: "🛠️ 炭酸のもと", m1: "スパイシーミント", m2: "ウォーターミント" },
-    { result: "🛠️ お酒のもと", m1: "フロストミント", m2: "ウォーターミント" },
+    { result: "🛠️ ポーションのもと", m1: "ベーシックミント", m2: "ベーシックミント" },
+    { result: "🛠️ スイーツのもと", m1: "スイーツミント", m2: "ベーシックミント" },
+    { result: "🛠️ 炭酸のもと", m1: "ガスミント", m2: "ベーシックミント" },
+    { result: "🛠️ お酒のもと", m1: "アルコールミント", m2: "ベーシックミント" },
     { result: "🛠️ ダークマターのもと", m1: "ダークマター", m2: "🛠️ ポーションのもと" } 
 ];
 
@@ -594,10 +652,10 @@ function openCraft() {
     let hintHTML = `
         <p style="margin-top:0; margin-bottom:5px; color:#c084fc; font-weight:bold;">【基本レシピ】</p>
         <ul style="margin:0; padding-left:20px; color:#e9d5ff;">
-            <li>💧ウォーター + 💧ウォーター = 🛠️ ポーションのもと</li>
-            <li>🥛ミルク + 🥛ミルク = 🛠️ スイーツのもと</li>
-            <li>🌶️スパイシー + 💧ウォーター = 🛠️ 炭酸のもと</li>
-            <li>❄️フロスト + 💧ウォーター = 🛠️ お酒のもと</li>
+            <li>🌿ベーシック + 🌿ベーシック = 🛠️ ポーションのもと</li>
+            <li>🍬スイーツ + 🌿ベーシック = 🛠️ スイーツのもと</li>
+            <li>💨ガス + 🌿ベーシック = 🛠️ 炭酸のもと</li>
+            <li>🍷アルコール + 🌿ベーシック = 🛠️ お酒のもと</li>
     `;
     if (data.discoveredPotions.includes("❓ 異質なポーション")) {
         hintHTML += `<li style="color:#ef4444; font-weight:bold; margin-top:5px; text-shadow:0 0 5px red; list-style-type:none;">🌑 ダークマター + 🛠️ ポーションのもと = 🛠️ ダークマターのもと</li>`;
@@ -627,9 +685,7 @@ function doCraft() {
         if(!data.discoveredMints.includes(recipe.result)) data.discoveredMints.push(recipe.result);
         showNotification(`✨ 合成成功！「${recipe.result}」を作成しました！`);
     } else {
-        data.mintInventory[m1]--;
-        data.mintInventory[m2]--;
-        showNotification("💥 合成失敗... 謎のチリになって消えてしまった。");
+        showNotification("❌ レシピが存在しません！(素材は消費されませんでした)");
     }
     openCraft(); save();
 }
@@ -656,21 +712,43 @@ function doBrew(){
     let count1 = data.mintInventory[m1] || 0; let count2 = data.mintInventory[m2] || 0;
     if(m1 === m2 && count1 < 2) return showNotification(`「${m1}」が2つ必要です。`);
     
-    let resultPotion = "🧪 失敗作ポーション (ゴミ)";
+    let resultPotion = null;
+    
     for(let r of treeRecipes){
         if(r.base === base){
-            if((r.m1 === m1 && r.m2 === m2) || (r.m1 === m2 && r.m2 === m1) || (r.m1 === m1 && r.m2 === "任意") || (r.m1 === m2 && r.m2 === "任意")){
-                resultPotion = r.result; break;
+            let match = false;
+            if(r.m1 === "任意" && r.m2 === "任意") match = true;
+            else if(r.m1 === "任意") match = (r.m2 === m1 || r.m2 === m2);
+            else if(r.m2 === "任意") match = (r.m1 === m1 || r.m1 === m2);
+            else match = ((r.m1 === m1 && r.m2 === m2) || (r.m1 === m2 && r.m2 === m1));
+            
+            if(match){
+                resultPotion = r.result; 
+                break;
             }
         }
     }
     
+    if(!resultPotion) {
+        return showNotification("❌ 醸造レシピが間違っています！(素材は消費されませんでした)");
+    }
+    
+    // ランダムポーションの処理
+    let isRandom = false;
+    if(resultPotion === "🎲 基本ポーション(ランダム)") {
+        let pool = ["💰 黄金の雫", "⭐ 知識の霊薬", "📈 ハイパードライブ薬", "🛡 プロテクトジェル", "💎 ミントブースト", "🚀 ギャラクシーブル", "⏳ タイムワープ薬"];
+        resultPotion = pool[Math.floor(Math.random() * pool.length)];
+        isRandom = true;
+    }
+    
     data.mintInventory[base]--; data.mintInventory[m1]--; data.mintInventory[m2]--; data.brewCount++;
     data.potions[resultPotion] = (data.potions[resultPotion] || 0) + 1;
-    if(!data.discoveredPotions.includes(resultPotion) && resultPotion !== "🧪 失敗作ポーション (ゴミ)") data.discoveredPotions.push(resultPotion);
+    if(!data.discoveredPotions.includes(resultPotion)) data.discoveredPotions.push(resultPotion);
     if(resultPotion === "❓ 異質なポーション") data.alienPotionCount++;
     
-    showNotification(`⚗️ 醸造完了！「${resultPotion}」が完成しました！`);
+    if(isRandom) showNotification(`🎲 ランダム醸造！「${resultPotion}」が完成しました！`);
+    else showNotification(`⚗️ 醸造完了！「${resultPotion}」が完成しました！`);
+    
     openBrew(); updateUI(); save();
 }
 
@@ -686,10 +764,14 @@ function openRecipeTree(){
         
         treeRecipes.filter(r => r.base === base).forEach(r => {
             let li = document.createElement("li"); li.className = "tree-li";
-            if(data.discoveredPotions.includes(r.result)){
+            
+            // ランダム枠は特殊表示
+            if(r.result === "🎲 基本ポーション(ランダム)") {
+                li.innerHTML = `<span class="tree-recipe">🎲 ランダムな基本ポーション</span> <span style="font-size:12px;color:#aaa;">(任意 + 任意)</span>`;
+            } else if(data.discoveredPotions.includes(r.result)) {
                 li.innerHTML = `<span class="tree-recipe">${r.result}</span> <span style="font-size:12px;color:#aaa;">(${r.m1} + ${r.m2})</span>`;
             } else {
-                li.innerHTML = `<span class="tree-unknown">？？？</span> <span style="font-size:12px;color:#aaa;">(${r.m1} + ？？？？？)</span>`;
+                li.innerHTML = `<span class="tree-unknown">？？？？？？？？</span> <span style="font-size:12px;color:#aaa;">(${r.m1} + ？？？？？)</span>`;
             }
             ul.appendChild(li);
         });
@@ -699,8 +781,9 @@ function openRecipeTree(){
 
 function openMint(){
     const list = document.getElementById("mintList"); list.innerHTML = "";
+    const mintTypes = getActiveMintTable();
     let html = `<div style="margin-bottom:20px; border-bottom:1px solid #a855f7; padding-bottom:10px;">`;
-    mintTypes.forEach(m => { html += `<div style="display:flex; justify-content:space-between; font-size:14px;"><span>${m.name}</span> <span style="color:#aaa;">${m.prob}%</span></div>`; });
+    mintTypes.forEach(m => { html += `<div style="display:flex; justify-content:space-between; font-size:14px;"><span>${m.name}</span> <span style="color:#aaa;">${m.rate}%</span></div>`; });
     html += `</div>`;
     
     const inventory = Object.keys(data.mintInventory).filter(k => data.mintInventory[k] > 0);

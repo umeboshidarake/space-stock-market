@@ -63,7 +63,7 @@ select { background: black; color: white; border: 1px solid #a855f7; padding: 10
 .tree-li::before { content: ""; position: absolute; top: 12px; left: -20px; width: 20px; border-top: 1px dashed #a855f7; }
 .tree-base { font-size: 18px; font-weight: bold; color: #ffd700; margin-top: 20px; border-bottom: 1px solid #a855f7; padding-bottom: 5px; }
 .tree-recipe { color: #e9d5ff; font-size: 14px; font-weight: bold; }
-.tree-unknown { color: #888; font-style: italic; }
+.tree-unknown { color: #888; font-style: italic; font-weight: bold; }
 </style>
 </head>
 
@@ -212,11 +212,9 @@ let loadedData = JSON.parse(localStorage.getItem("spaceStockData"));
 let data = {};
 
 if(!loadedData) {
-    // 新規プレイ時のデータ
     data = { nickname:"", money:30000, points:0, mint:0, alienMints:0, mintInventory:{}, potions:{}, activeBuffs:{}, stocks:[], totalBuys:0, gachaCount:0, brewCount:0, alienPotionCount:0, discoveredMints:[], discoveredPotions:[], achievementsUnlocked:[], hiddenGraphItems:[] };
     for(let i=0;i<10;i++) data.stocks.push({ name: stockTemplates[i].name, desc: stockTemplates[i].desc, price: stockTemplates[i].basePrice, owned: 0, unlocked: i<3, unlockCost: 500+i*300, history: [stockTemplates[i].basePrice], buyPrice: 0, visible: i<3, vol: stockTemplates[i].vol, nextChange: 0 });
 } else {
-    // 古いデータ引き継ぎと補完
     data = loadedData;
     if(!data.mintInventory) data.mintInventory = {};
     if(!data.potions) data.potions = {};
@@ -231,216 +229,235 @@ if(!loadedData) {
         data.stocks.forEach((s, idx) => {
             if(!s.history) s.history = [s.price];
             if(s.visible === undefined) s.visible = s.unlocked;
-            if(!s.desc) s.desc = stockTemplates[idx].desc; // 失われた説明文を復活
+            if(!s.desc) s.desc = stockTemplates[idx].desc;
         });
     }
 }
 
 let timerInterval = null, priceCheckTimeout = null, isGachaSpinning = false;
-let graphPoints = [], hoveredPoint = null; 
-
+let graphPoints = [], hoveredPoint = null;
+// --- ポーション効果とレシピ ---
 const potionEffects = {
-    "💰 黄金の雫": { desc: "所持金即座に +100,000G", type: "instant", action: (m=1) => data.money += 100000 * m },
-    "⭐ 知識の霊薬": { desc: "ポイント即座に +5,000P", type: "instant", action: (m=1) => data.points += 5000 * m },
-    "📈 ハイパードライブ薬": { desc: "3分間、株価の変動幅が2倍", type: "buff", duration: 180000 },
-    "🛡 プロテクトジェル": { desc: "3分間、株価下落時の下落幅半減", type: "buff", duration: 180000 },
-    "💎 ミントブースト": { desc: "3分間、売却時のミント破片獲得量2倍", type: "buff", duration: 180000 },
-    "🚀 ギャラクシーブル": { desc: "3分間、株価が上がりやすくなる", type: "buff", duration: 180000 },
-    "⏳ タイムワープ薬": { desc: "即座に20回分の価格変動", type: "instant", action: (m=1) => { for(let i=0;i<20*m;i++) updatePrices(true); updateUI(); }},
-    "✨ 奇跡の雫": { desc: "所持金 +1,000,000G、ポイント +50,000P", type: "instant", action: (m=1) => { data.money+=1000000*m; data.points+=50000*m; }},
-    "❓ 異質なポーション": { desc: "2分間、世界を「破壊」可能に...", type: "buff", duration: 120000 },
-    "🌍 星の恵み": { desc: "3分間、ミントの破片獲得量が3倍", type: "buff", duration: 180000 },
-    "🌋 ヴォルカニック・ブル": { desc: "3分間、株価が超絶上がりやすくなる", type: "buff", duration: 180000 },
-    "🧂 ソルトバリア": { desc: "3分間、株価の下落を完全に無効化", type: "buff", duration: 180000 },
-    "🍦 チョコミントポーション": { desc: "10分間、他のポーションの効果を2倍！", type: "buff", duration: 600000 },
-    "🌶️ スパイシーサワー": { desc: "1分間、変動間隔が10秒ごとに", type: "buff", duration: 60000 },
-    "❄️ フロストエナジー": { desc: "2分間、次の価格変動を予知", type: "buff", duration: 120000 },
-    "💧 マダム・ザ・ウォーター": { desc: "即座にミントガチャを10回引く", type: "instant", action: (m=1) => { closeScreen("bagScreen"); spinGacha(10 * m, true); }},
-    "🍨 アイスクリームポーション": { desc: "3分間、株価の変動がとても緩やかになる", type: "buff", duration: 180000 },
-    "🍸 ソルティドッグ": { desc: "3分間、売却時の利益が1.5倍になる", type: "buff", duration: 180000 },
-    "🥤 コーラ": { desc: "即座に10回分の価格変動を起こし、ミント破片を300得る", type: "instant", action: (m=1) => { for(let i=0;i<10*m;i++) updatePrices(true); data.mint += 300 * m; updateUI(); }}
+    "🧪 失敗作ポーション (ゴミ)": { desc: "何の効果もない...ただ不味い。", type: "instant", action: () => {} },
+    "💧 癒しの水": { desc: "株価が少しだけ上がりやすくなる (3分)", type: "buff", duration: 180000 },
+    "🔥 炎の霊薬": { desc: "次に変動する時、全株価が大きく動く！", type: "buff", duration: 10000 },
+    "💰 成金ポーション": { desc: "即座に 5,000G 獲得！", type: "instant", action: (m=1) => { data.money += 5000*m; } },
+    "🌟 ひらめきの霊薬": { desc: "即座に 500P 獲得！", type: "instant", action: (m=1) => { data.points += 500*m; } },
+    "🍦 チョコミントポーション": { desc: "次に飲むポーションの効果が2倍になる！", type: "buff", duration: 600000 }, 
+    "❓ 異質なポーション": { desc: "次元の境界を揺るがす...『破壊』が可能になる", type: "buff", duration: 999999999 }
 };
 
 const treeRecipes = [
-    { result: "❓ 異質なポーション", base: "🛠️ ポーションのもと", m1: "ブラッドミント", m2: "ギャラクシーミント" },
-    { result: "🌍 星の恵み", base: "🛠️ ポーションのもと", m1: "プラネットミント", m2: "プラネットミント" },
-    { result: "🌋 ヴォルカニック・ブル", base: "🛠️ ポーションのもと", m1: "マグマミント", m2: "マグマミント" },
-    { result: "🧂 ソルトバリア", base: "🛠️ ポーションのもと", m1: "ソルティミント", m2: "ソルティミント" },
-    { result: "💧 マダム・ザ・ウォーター", base: "🛠️ ポーションのもと", m1: "マダムミント", m2: "任意" },
-    { result: "🍦 チョコミントポーション", base: "🛠️ スイーツのもと", m1: "ミルクミント", m2: "チョコチップミント" },
-    { result: "🍨 アイスクリームポーション", base: "🛠️ スイーツのもと", m1: "ミルクミント", m2: "ミルクミント" },
-    { result: "🌶️ スパイシーサワー", base: "🛠️ 炭酸のもと", m1: "スパイシーミント", m2: "任意" },
-    { result: "❄️ フロストエナジー", base: "🛠️ 炭酸のもと", m1: "フロストミント", m2: "任意" },
-    { result: "🥤 コーラ", base: "🛠️ 炭酸のもと", m1: "焼け焦げたミント", m2: "スイーツミント" },
-    { result: "🍸 ソルティドッグ", base: "🛠️ お酒のもと", m1: "ソルティミント", m2: "ウォーターミント" }
+    { base: "🛠️ ポーションのもと", m1: "ウォーターミント", m2: "ミルクミント", result: "💧 癒しの水" },
+    { base: "🛠️ 炭酸のもと", m1: "スパイシーミント", m2: "マグマミント", result: "🔥 炎の霊薬" },
+    { base: "🛠️ お酒のもと", m1: "ソルティミント", m2: "プラネットミント", result: "💰 成金ポーション" },
+    { base: "🛠️ スイーツのもと", m1: "フロストミント", m2: "チョコチップミント", result: "🍦 チョコミントポーション" },
+    { base: "🛠️ ダークマターのもと", m1: "ダークマター", m2: "ギャラクシーミント", result: "❓ 異質なポーション" }
 ];
 
+// --- 実績データ ---
 const achievements = [
-    {name:"初投資",desc:"初めて株を買う",check:()=>data.totalBuys>=1}, 
-    {name:"デイトレーダー",desc:"株を100回購入",check:()=>data.totalBuys>=100},
-    {name:"伝説の相場師",desc:"株を1,000回購入",check:()=>data.totalBuys>=1000},
-    {name:"プチブルジョワ",desc:"所持金 100,000G",check:()=>data.money>=100000}, 
-    {name:"資産形成",desc:"所持金 1,000,000G",check:()=>data.money>=1000000},
-    {name:"宇宙の大富豪",desc:"所持金 10,000,000G",check:()=>data.money>=10000000},
-    {name:"宇宙投資家",desc:"全株解放",check:()=>data.stocks.every(s=>s.unlocked)}, 
-    {name:"ガチャ体験",desc:"ガチャを引く",check:()=>data.gachaCount>=1},
-    {name:"ガチャ依存症",desc:"ガチャを100回引く",check:()=>data.gachaCount>=100},
-    {name:"マッドサイエンティスト",desc:"ポーションを50回醸造",check:()=>data.brewCount>=50}, 
-    {name:"錬金術の極意",desc:"ポーションを100回醸造",check:()=>data.brewCount>=100},
-    {name:"禁忌の錬金術",desc:"異質なポーションを作成",check:()=>data.alienPotionCount>=1},
-    {name:"世界の破壊者",desc:"世界を破壊し、異星のミントを手に入れる",check:()=>data.alienMints>=1},
-    {name:"チョコミン党",desc:"チョコミントポーションを作成",check:()=>data.discoveredPotions.includes("🍦 チョコミントポーション")},
-    {name:"時を操る者",desc:"フロストエナジーを作成",check:()=>data.discoveredPotions.includes("❄️ フロストエナジー")},
-    {name:"スリルジャンキー",desc:"スパイシーサワーを作成",check:()=>data.discoveredPotions.includes("🌶️ スパイシーサワー")},
-    {name:"マダムの寵愛",desc:"マダム・ザ・ウォーターを作成",check:()=>data.discoveredPotions.includes("💧 マダム・ザ・ウォーター")},
-    {name:"母なる星の加護",desc:"星の恵みを作成",check:()=>data.discoveredPotions.includes("🌍 星の恵み")},
-    {name:"灼熱の闘牛",desc:"ヴォルカニック・ブルを作成",check:()=>data.discoveredPotions.includes("🌋 ヴォルカニック・ブル")},
-    {name:"絶対防御",desc:"ソルトバリアを作成",check:()=>data.discoveredPotions.includes("🧂 ソルトバリア")},
-    {name:"基礎研究",desc:"ポーションのもとを作成",check:()=>data.discoveredMints.includes("🛠️ ポーションのもと")},
-    {name:"甘党への道",desc:"スイーツのもとを作成",check:()=>data.discoveredMints.includes("🛠️ スイーツのもと")}
+    { name: "初めての取引", desc: "株を1回購入する", check: () => data.totalBuys >= 1 },
+    { name: "大富豪への道", desc: "所持金が 100,000G を突破する", check: () => data.money >= 100000 },
+    { name: "投資家デビュー", desc: "銘柄を5つ解放する", check: () => data.stocks.filter(s => s.unlocked).length >= 5 },
+    { name: "ガチャ中毒", desc: "ガチャを 50 回回す", check: () => data.gachaCount >= 50 },
+    { name: "錬金術師", desc: "ポーションを 10 回醸造する", check: () => data.brewCount >= 10 },
+    { name: "狂気の科学者", desc: "異質なポーションを作成する", check: () => data.alienPotionCount >= 1 },
+    { name: "次元の超越者", desc: "世界を破壊し、異星のミントを手に入れる", check: () => data.alienMints >= 1 }
 ];
 
-function save(){ localStorage.setItem("spaceStockData",JSON.stringify(data)); checkAchievements(); }
-
-function startGame(){
-    let name=document.getElementById("nicknameInput").value; data.nickname = name || "名無しトレーダー";
-    document.getElementById("nicknameScreen").style.display="none"; document.getElementById("game").style.display="block";
-    document.getElementById("playerName").innerText=data.nickname;
-    updateUI(); startTimers(); save();
+// --- メインシステム ---
+function save() {
+    localStorage.setItem("spaceStockData", JSON.stringify(data));
+    checkAchievements();
 }
 
-function startTimers(){ if(!timerInterval) timerInterval = setInterval(updateTimer,1000); if(!priceCheckTimeout) checkPriceUpdate(); }
-function getTickInterval() { return isBuffActive("🌶️ スパイシーサワー") ? 10000 : 60000; }
-function isBuffActive(buffName){ return data.activeBuffs[buffName] && data.activeBuffs[buffName] > Date.now(); }
-
-function calculateNextChange(stock) {
-    let volatility = stock.price * (stock.vol || 0.05);
-    if(isBuffActive("📈 ハイパードライブ薬")) volatility *= 2;
-    if(isBuffActive("🍨 アイスクリームポーション")) volatility *= 0.3;
-    let change = (Math.random() - 0.5) * volatility;
-    if(isBuffActive("🚀 ギャラクシーブル")) change = (Math.random() - 0.2) * volatility; 
-    if(isBuffActive("🌋 ヴォルカニック・ブル")) change = (Math.random() - 0.1) * volatility * 1.5;
-    if(change < 0 && isBuffActive("🛡 プロテクトジェル")) change *= 0.5;
-    if(change < 0 && isBuffActive("🧂 ソルトバリア")) change = 0;
-    return Math.floor(change);
-}
-
-function updatePrices(skipUI = false){
-    data.stocks.forEach(stock=>{
-        stock.price = Math.max(10, Math.floor(stock.price + (stock.nextChange || 0)));
-        stock.history.push(stock.price); if(stock.history.length>30) stock.history.shift();
-        stock.nextChange = calculateNextChange(stock);
-    });
-    data.points+=100; if(!skipUI) updateUI();
-}
-
-function checkPriceUpdate(){
-    const now=Date.now(); const elapsed = now - (data.lastUpdate || now); const tickInterval = getTickInterval();
-    if(elapsed >= tickInterval){
-        let updates = Math.floor(elapsed / tickInterval); if (updates > 30) updates = 30;
-        for(let i=0; i<updates; i++) updatePrices(true);
-        data.lastUpdate = now - (elapsed % tickInterval); updateUI();
+function startGame() {
+    const input = document.getElementById("nicknameInput").value;
+    if (!data.nickname) {
+        if (!input) return alert("ニックネームを入力してください！");
+        data.nickname = input;
+        save();
     }
-    priceCheckTimeout = setTimeout(checkPriceUpdate, 1000);
-}
-
-function updateTimer(){
-    const now = Date.now(); const tickInterval = getTickInterval();
-    const sec=Math.max(0,Math.floor((tickInterval-(now-(data.lastUpdate||now)))/1000));
-    document.getElementById("timer").innerText=sec+"秒";
-    let buffText = "";
-    for(let buff in data.activeBuffs){
-        if(data.activeBuffs[buff] > now) buffText += `<span style="margin-right:15px;">${buff}: 残 ${Math.floor((data.activeBuffs[buff] - now)/1000)}秒</span>`;
-        else delete data.activeBuffs[buff];
-    }
-    document.getElementById("buffStatus").innerHTML = buffText;
-    if(isBuffActive("❄️ フロストエナジー") && (tickInterval - (now - data.lastUpdate) <= 20000)) updateUI();
-}
-
-function updateUI(){
-    document.getElementById("money").innerText=data.money.toLocaleString();
-    document.getElementById("points").innerText=data.points.toLocaleString();
-    document.getElementById("mint").innerText=data.mint.toLocaleString();
-    document.getElementById("alienMints").innerText = (data.alienMints || 0).toLocaleString();
-
-    const stocksDiv=document.getElementById("stocks"); stocksDiv.innerHTML="";
-    const showPrediction = isBuffActive("❄️ フロストエナジー") && (getTickInterval() - (Date.now() - (data.lastUpdate||0))) <= 20000;
-
-    data.stocks.forEach((stock,i)=>{
-        const card=document.createElement("div"); card.className="card"+(stock.unlocked?"":" locked");
-        let profitDisplay = "";
-        if(stock.owned > 0 && stock.buyPrice > 0){
-            let diff = stock.price - stock.buyPrice;
-            let sign = diff >= 0 ? "+" : ""; let color = diff >= 0 ? "lime" : "#fca5a5";
-            profitDisplay = `<span style="color:${color}; font-size:12px;">(${sign}${diff.toLocaleString()}G/株)</span>`;
-        }
-        let predictHtml = "";
-        if (stock.unlocked && showPrediction) {
-            let pSign = stock.nextChange >= 0 ? "+" : ""; let pColor = stock.nextChange >= 0 ? "lime" : "#fca5a5";
-            predictHtml = `<p style="font-size:14px; margin:5px 0; color:${pColor}; font-weight:bold;">👁️ 予知: 次回 ${pSign}${stock.nextChange.toLocaleString()}G</p>`;
-        }
-        // ここで銘柄の「性格・説明文」を復活させました！
-        card.innerHTML=`<h3 style="margin: 0 0 5px 0; font-size:18px; color:${colors[i%colors.length]}">${stock.name}</h3>
-            <p style="font-size:12px; color:#aaa; margin-bottom:10px; min-height:30px;">${stock.desc}</p>
-            <p style="font-size:18px; font-weight:bold; margin:5px 0; color:#fff;">現在値: ${stock.price.toLocaleString()}G ${profitDisplay}</p>
-            ${predictHtml}
-            <p style="margin:5px 0; color:#e9d5ff;">保有: ${stock.owned.toLocaleString()}株</p>`;
-
-        if(stock.unlocked){
-            const actions = document.createElement("div"); actions.className = "card-actions";
-            const btnGroup = document.createElement("div"); btnGroup.className = "btn-group";
-            [1,10,100].forEach(n=>{
-                const btn=document.createElement("button"); btn.innerText="買 "+n;
-                btn.onclick=()=>buyStock(i,n); if(data.money < stock.price * n) btn.disabled = true;
-                btnGroup.appendChild(btn);
-            });
-            actions.appendChild(btnGroup);
-            const btnGroupSell = document.createElement("div"); btnGroupSell.className = "btn-group";
-            [1,10,100].forEach(n=>{
-                const btn=document.createElement("button"); btn.innerText="売 "+n;
-                btn.onclick=()=>sellStock(i,n); if(stock.owned<n) btn.disabled=true;
-                btnGroupSell.appendChild(btn);
-            });
-            actions.appendChild(btnGroupSell); card.appendChild(actions);
-        }else{
-            const unlockBtn=document.createElement("button"); unlockBtn.className="unlockBtn menu-btn";
-            unlockBtn.innerText=stock.unlockCost.toLocaleString()+"Pで解放";
-            if(data.points >= stock.unlockCost){ unlockBtn.disabled = false; unlockBtn.onclick=()=>unlockStock(i); } 
-            else { unlockBtn.disabled = true; unlockBtn.style.animation = "none"; }
-            card.appendChild(unlockBtn);
-        }
-        stocksDiv.appendChild(card);
-    });
-    drawAllGraph(); save();
-}
-
-function buyStock(i,amount){
-    const stock=data.stocks[i]; const cost=stock.price*amount; if(data.money<cost) return;
-    data.money-=cost;
-    stock.buyPrice = stock.owned === 0 ? stock.price : Math.floor(((stock.buyPrice * stock.owned) + cost) / (stock.owned + amount));
-    stock.owned+=amount; data.totalBuys++; updateUI();
-}
-
-function sellStock(i,amount){
-    const stock=data.stocks[i]; if(stock.owned<amount) return;
-    const diff = stock.price - stock.buyPrice;
-    let mult = isBuffActive("🍸 ソルティドッグ") ? 1.5 : 1;
-    let profit = Math.floor(diff * mult); 
-    let totalGain = (stock.buyPrice + profit) * amount; 
-    data.money += totalGain;
+    document.getElementById("nicknameScreen").style.display = "none";
+    document.getElementById("game").style.display = "block";
+    document.getElementById("playerName").innerText = data.nickname;
     
-    if(profit > 0){
-        let mintGain = Math.max(1, Math.floor((profit * amount) / 10));
-        if(isBuffActive("🌍 星の恵み")) mintGain *= 3; else if(isBuffActive("💎 ミントブースト")) mintGain *= 2;
-        data.mint += mintGain;
-    }
-    stock.owned-=amount; if(stock.owned === 0) stock.buyPrice = 0; updateUI();
+    updateUI(); drawAllGraph();
+    
+    if(timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(updateTimer, 1000);
+    data.nextChange = Date.now() + 10000;
 }
 
-function unlockStock(i){ if(data.points>=data.stocks[i].unlockCost){ data.points-=data.stocks[i].unlockCost; data.stocks[i].unlocked=true; data.stocks[i].visible=true; updateUI(); } }
+function isBuffActive(potionName) {
+    if (!data.activeBuffs[potionName]) return false;
+    if (Date.now() > data.activeBuffs[potionName]) {
+        delete data.activeBuffs[potionName];
+        return false;
+    }
+    return true;
+}
 
+function updateTimer() {
+    let remain = Math.max(0, Math.ceil((data.nextChange - Date.now()) / 1000));
+    document.getElementById("timer").innerText = remain + "秒";
+    if (remain <= 0 && !priceCheckTimeout) {
+        priceCheckTimeout = setTimeout(() => { updatePrices(); priceCheckTimeout = null; }, 100);
+    }
+    
+    // バフの表示更新
+    let buffText = [];
+    for(let p in data.activeBuffs){
+        if(isBuffActive(p)){
+            let r = Math.ceil((data.activeBuffs[p] - Date.now())/1000);
+            if(p === "❓ 異質なポーション") buffText.push(`<span style="color:#ef4444; text-shadow:0 0 5px red;">⚠️ 次元崩壊の兆し (破壊可能)</span>`);
+            else buffText.push(`${p} (${r}秒)`);
+        }
+    }
+    document.getElementById("buffStatus").innerHTML = buffText.length > 0 ? "✨ 発動中: " + buffText.join(" / ") : "";
+}
+
+function updatePrices() {
+    let isHealing = isBuffActive("💧 癒しの水");
+    let isFire = isBuffActive("🔥 炎の霊薬");
+    
+    data.stocks.forEach((stock, idx) => {
+        if(!stock.unlocked) return;
+        let vol = stock.vol;
+        if(isFire) vol *= 3; // 炎の霊薬でボラティリティ激増
+        
+        let changePercent = (Math.random() * vol * 2) - vol; 
+        if(isHealing) changePercent += 0.01; // 癒しの水で少しプラス補正
+        
+        stock.price = Math.max(10, Math.floor(stock.price * (1 + changePercent)));
+        stock.history.push(stock.price);
+        if(stock.history.length > 30) stock.history.shift();
+    });
+    
+    if(isFire) delete data.activeBuffs["🔥 炎の霊薬"]; // 1回で消費
+    
+    data.points += 10;
+    data.nextChange = Date.now() + 10000;
+    updateUI(); drawAllGraph(); save();
+}
+
+// --- UI更新・株取引 ---
+function updateUI() {
+    document.getElementById("money").innerText = data.money.toLocaleString();
+    document.getElementById("points").innerText = data.points;
+    document.getElementById("mint").innerText = data.mint;
+    document.getElementById("alienMints").innerText = data.alienMints;
+    
+    document.querySelector(".destroy-btn").disabled = !isBuffActive("❓ 異質なポーション");
+
+    const container = document.getElementById("stocks");
+    container.innerHTML = "";
+    
+    data.stocks.forEach((stock, idx) => {
+        if (!stock.visible) {
+            if(idx === 0 || data.stocks[idx-1].unlocked) {
+                const card = document.createElement("div"); card.className = "card locked";
+                card.innerHTML = `<h3>🔒 未知の銘柄</h3><p>ポイントを使って解放</p>
+                                  <button class="unlockBtn" onclick="unlockStock(${idx})">解放 (${stock.unlockCost}P)</button>`;
+                container.appendChild(card);
+            }
+            return;
+        }
+
+        const card = document.createElement("div"); card.className = "card";
+        const diff = stock.history.length > 1 ? stock.price - stock.history[stock.history.length-2] : 0;
+        const diffColor = diff >= 0 ? "#10b981" : "#ef4444";
+        const diffArrow = diff >= 0 ? "▲" : "▼";
+        const diffText = diff === 0 ? "±0" : `${diffArrow}${Math.abs(diff)}`;
+        
+        const isGraphHidden = data.hiddenGraphItems.includes(idx);
+
+        card.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <h3 style="margin:0; color:${colors[idx%colors.length]}; font-size:18px;">${stock.name}</h3>
+                <button onclick="toggleGraph(${idx})" style="padding:2px 5px; font-size:12px; border:none; background:transparent; color:${isGraphHidden ? '#666' : '#a855f7'}; text-decoration:${isGraphHidden ? 'line-through' : 'none'}; cursor:pointer;">📈表示</button>
+            </div>
+            <p style="font-size:12px; color:#aaa; margin:5px 0;">${stock.desc}</p>
+            <div style="font-size:24px; font-weight:bold; margin:10px 0;">${stock.price.toLocaleString()}G <span style="font-size:14px; color:${diffColor};">${diffText}</span></div>
+            <div style="font-size:14px; color:#e9d5ff;">所持: ${stock.owned}株 (平均: ${stock.buyPrice}G)</div>
+            <div class="card-actions">
+                <div class="btn-group">
+                    <button onclick="buyStock(${idx}, 1)">買1</button>
+                    <button onclick="buyStock(${idx}, 10)">買10</button>
+                    <button onclick="buyStock(${idx}, 'max')">買Max</button>
+                </div>
+                <div class="btn-group">
+                    <button onclick="sellStock(${idx}, 1)">売1</button>
+                    <button onclick="sellStock(${idx}, 10)">売10</button>
+                    <button onclick="sellStock(${idx}, 'all')">全売</button>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+function toggleGraph(idx) {
+    if(data.hiddenGraphItems.includes(idx)) {
+        data.hiddenGraphItems = data.hiddenGraphItems.filter(id => id !== idx);
+    } else {
+        data.hiddenGraphItems.push(idx);
+    }
+    updateUI(); drawAllGraph(); save();
+}
+
+function buyStock(idx, amount) {
+    const stock = data.stocks[idx];
+    let qty = amount === 'max' ? Math.floor(data.money / stock.price) : amount;
+    if (qty <= 0) return showNotification("お金が足りません！");
+    
+    let cost = stock.price * qty;
+    if (data.money >= cost) {
+        data.money -= cost;
+        let totalCost = (stock.owned * stock.buyPrice) + cost;
+        stock.owned += qty;
+        stock.buyPrice = Math.floor(totalCost / stock.owned);
+        data.totalBuys++;
+        updateUI(); save();
+    }
+}
+
+function sellStock(idx, amount) {
+    const stock = data.stocks[idx];
+    let qty = amount === 'all' ? stock.owned : amount;
+    if (qty <= 0 || stock.owned < qty) return showNotification("売る株がありません！");
+    
+    let revenue = stock.price * qty;
+    let profit = revenue - (stock.buyPrice * qty);
+    
+    data.money += revenue;
+    stock.owned -= qty;
+    if (stock.owned === 0) stock.buyPrice = 0;
+    
+    if (profit > 0) {
+        let mintGained = Math.ceil(profit / 100);
+        data.mint += mintGained;
+        showNotification(`📈 利益確定！ ${profit.toLocaleString()}Gの利益！ (破片+${mintGained})`);
+    }
+    updateUI(); save();
+}
+
+function unlockStock(idx) {
+    if (data.points >= data.stocks[idx].unlockCost) {
+        data.points -= data.stocks[idx].unlockCost;
+        data.stocks[idx].unlocked = true;
+        data.stocks[idx].visible = true;
+        showNotification(`🔓 新規銘柄「${data.stocks[idx].name}」を解放しました！`);
+        updateUI(); drawAllGraph(); save();
+    } else {
+        showNotification("ポイントが足りません！");
+    }
+}
+
+// 画面切り替えユーティリティ
 function openScreen(id){ document.getElementById(id).style.display="flex"; }
-function closeScreen(id){ if(id === 'gachaScreen' && isGachaSpinning) return; document.getElementById(id).style.display="none"; }
+function closeScreen(id){ document.getElementById(id).style.display="none"; }
 // --- グラフ描画 ---
 function drawAllGraph(){
     const canvas=document.getElementById("allGraph"); if(!canvas) return;
@@ -479,11 +496,7 @@ function drawAllGraph(){
         if(stock.visible){
             const item=document.createElement("div"); item.className="legend-item" + (data.hiddenGraphItems.includes(i) ? " hidden-stock" : "");
             item.innerHTML=`<span style="color:${colors[i%colors.length]}">■</span> ${stock.name}`;
-            item.onclick=()=>{
-                if(data.hiddenGraphItems.includes(i)) data.hiddenGraphItems = data.hiddenGraphItems.filter(id => id !== i);
-                else data.hiddenGraphItems.push(i);
-                updateUI();
-            };
+            item.onclick=()=>{ toggleGraph(i); };
             legendDiv.appendChild(item);
         }
     });
@@ -492,7 +505,7 @@ function drawAllGraph(){
     canvas.onmousemove = (e) => {
         const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
         hoveredPoint = graphPoints.find(p => Math.abs(p.x - mouseX) < 10 && Math.abs(p.y - mouseY) < 10);
-        drawAllGraph(); // 再描画してツールチップを表示
+        drawAllGraph(); 
     };
     if (hoveredPoint) {
         ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.strokeStyle = hoveredPoint.color; ctx.lineWidth = 1;
@@ -509,7 +522,7 @@ const mintTypes = [
     {name:"プラネットミント", prob:10}, {name:"ソルティミント", prob:10}, {name:"フロストミント", prob:8},
     {name:"焼け焦げたミント", prob:5}, {name:"チョコチップミント", prob:4}, {name:"マグマミント", prob:2},
     {name:"マダムミント", prob:0.5}, {name:"ブラッドミント", prob:0.3}, {name:"ギャラクシーミント", prob:0.1},
-    {name:"ダークマター", prob:0.1} // 新規追加のレア素材
+    {name:"ダークマター", prob:0.1}
 ];
 
 function openGacha(){ 
@@ -564,14 +577,13 @@ const craftRecipes = [
     { result: "🛠️ スイーツのもと", m1: "ミルクミント", m2: "ミルクミント" },
     { result: "🛠️ 炭酸のもと", m1: "スパイシーミント", m2: "ウォーターミント" },
     { result: "🛠️ お酒のもと", m1: "フロストミント", m2: "ウォーターミント" },
-    { result: "🛠️ ダークマターのもと", m1: "ダークマター", m2: "🛠️ ポーションのもと" } // 追加レシピ
+    { result: "🛠️ ダークマターのもと", m1: "ダークマター", m2: "🛠️ ポーションのもと" } 
 ];
 
 function openCraft() {
     const s1 = document.getElementById("craftMat1"); const s2 = document.getElementById("craftMat2");
     s1.innerHTML = ""; s2.innerHTML = "";
     
-    // 手持ちのミント・素材をすべてプルダウンに追加
     Object.keys(data.mintInventory).forEach(m => {
         if(data.mintInventory[m] > 0) {
             s1.innerHTML += `<option value="${m}">${m} (所持: ${data.mintInventory[m]})</option>`;
@@ -579,7 +591,6 @@ function openCraft() {
         }
     });
 
-    // レシピヒントの更新
     let hintHTML = `
         <p style="margin-top:0; margin-bottom:5px; color:#c084fc; font-weight:bold;">【基本レシピ】</p>
         <ul style="margin:0; padding-left:20px; color:#e9d5ff;">
@@ -588,7 +599,6 @@ function openCraft() {
             <li>🌶️スパイシー + 💧ウォーター = 🛠️ 炭酸のもと</li>
             <li>❄️フロスト + 💧ウォーター = 🛠️ お酒のもと</li>
     `;
-    // 異質なポーション解放済みの時のみ、不気味なヒントを追加
     if (data.discoveredPotions.includes("❓ 異質なポーション")) {
         hintHTML += `<li style="color:#ef4444; font-weight:bold; margin-top:5px; text-shadow:0 0 5px red; list-style-type:none;">🌑 ダークマター + 🛠️ ポーションのもと = 🛠️ ダークマターのもと</li>`;
     }
@@ -610,14 +620,15 @@ function doCraft() {
 
     let recipe = craftRecipes.find(r => (r.m1 === m1 && r.m2 === m2) || (r.m1 === m2 && r.m2 === m1));
 
-    data.mintInventory[m1]--;
-    data.mintInventory[m2]--;
-
     if(recipe) {
+        data.mintInventory[m1]--;
+        data.mintInventory[m2]--;
         data.mintInventory[recipe.result] = (data.mintInventory[recipe.result] || 0) + 1;
         if(!data.discoveredMints.includes(recipe.result)) data.discoveredMints.push(recipe.result);
         showNotification(`✨ 合成成功！「${recipe.result}」を作成しました！`);
     } else {
+        data.mintInventory[m1]--;
+        data.mintInventory[m2]--;
         showNotification("💥 合成失敗... 謎のチリになって消えてしまった。");
     }
     openCraft(); save();
@@ -678,7 +689,7 @@ function openRecipeTree(){
             if(data.discoveredPotions.includes(r.result)){
                 li.innerHTML = `<span class="tree-recipe">${r.result}</span> <span style="font-size:12px;color:#aaa;">(${r.m1} + ${r.m2})</span>`;
             } else {
-                li.innerHTML = `<span class="tree-unknown">？？？</span> <span style="font-size:12px;color:#aaa;">(${r.m1} + ${r.m2})</span>`;
+                li.innerHTML = `<span class="tree-unknown">？？？</span> <span style="font-size:12px;color:#aaa;">(${r.m1} + ？？？？？)</span>`;
             }
             ul.appendChild(li);
         });
@@ -759,7 +770,11 @@ function openAchievements(){
         const isUnlocked = data.achievementsUnlocked.includes(a.name);
         const item = document.createElement("div"); 
         item.className = "list-item" + (isUnlocked ? "" : " locked");
-        item.innerHTML = `<div><div style="font-weight:bold; color:${isUnlocked ? '#ffd700' : '#888'};">${a.name}</div><div style="font-size:12px; color:#aaa;">${a.desc}</div></div>
+        
+        let dispName = isUnlocked ? a.name : "？？？？";
+        let dispDesc = isUnlocked ? a.desc : "？？？？？？？？？？";
+        
+        item.innerHTML = `<div><div style="font-weight:bold; color:${isUnlocked ? '#ffd700' : '#888'};">${dispName}</div><div style="font-size:12px; color:#aaa;">${dispDesc}</div></div>
                           <div style="font-size:24px;">${isUnlocked ? '🌟' : '🔒'}</div>`;
         list.appendChild(item);
     });
